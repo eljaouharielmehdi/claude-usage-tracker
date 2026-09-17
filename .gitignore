@@ -1,0 +1,6 @@
+# Seeded automatically on first container run — each device gets its own
+# defaults, don't overwrite between devices via git.
+config/
+
+__pycache__/
+*.pyc

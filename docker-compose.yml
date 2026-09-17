@@ -1,0 +1,13 @@
+services:
+  claude-usage-tracker:
+    build: ./app
+    container_name: claude-usage-tracker
+    restart: unless-stopped
+    ports:
+      - "61209:8687"
+    volumes:
+      # Read-only: the app only ever reads these session logs, never writes to them.
+      - ${HOME}/.claude/projects:/data/projects:ro
+      - ./config:/config
+    environment:
+      - REFRESH_SECONDS=2

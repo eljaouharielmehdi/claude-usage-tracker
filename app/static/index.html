@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claude Code Usage</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Claude Code Usage Tracker</h1>
+    <div class="status">
+      <span id="live-dot" class="dot"></span>
+      <span id="updated-at">connecting...</span>
+    </div>
+  </header>
+
+  <section class="stat-grid" id="stat-grid"></section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Tokens — last 24h</h2>
+      <button class="table-toggle" id="chart-table-toggle" type="button">View as table</button>
+    </div>
+    <div class="legend" id="chart-legend"></div>
+    <div class="chart-wrap">
+      <div class="chart" id="chart"></div>
+      <div class="chart-axis" id="chart-axis"></div>
+    </div>
+    <div class="chart-table" id="chart-table" hidden></div>
+  </section>
+
+  <div class="two-col">
+    <section class="panel">
+      <h2>By model</h2>
+      <table id="model-table">
+        <thead><tr>
+          <th>Model</th><th class="num">Input</th><th class="num">Output</th>
+          <th class="num">Cache write</th><th class="num">Cache read</th><th class="num">Cost</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <section class="panel">
+      <h2>By project</h2>
+      <table id="project-table">
+        <thead><tr><th>Project</th><th class="num">Tokens</th><th class="num">Cost</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+  </div>
+
+  <section class="panel">
+    <h2>Recent sessions</h2>
+    <table id="session-table">
+      <thead><tr>
+        <th>Last activity</th><th>Project</th><th>Model(s)</th>
+        <th class="num">Messages</th><th class="num">Tokens</th><th class="num">Cost</th>
+      </tr></thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <footer>
+    Cost is an estimate based on <code>config/pricing.json</code> — edit that file with your actual per-token rates.
+    Nothing here leaves this container; all data is read from local session logs.
+  </footer>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
