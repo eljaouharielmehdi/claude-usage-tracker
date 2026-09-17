@@ -8,3 +8,9 @@ __pycache__/
 # Collector output — host-specific, grows continuously, not meant to be
 # checked in (each device generates its own).
 netmon/data/
+
+# Deployment-specific device list (hostnames/usernames) and the session
+# logs pulled in from them — see sync/README.md. devices.json.example is
+# the template that IS checked in.
+sync/devices.json
+remote_projects/

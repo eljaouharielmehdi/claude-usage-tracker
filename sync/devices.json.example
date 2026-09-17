@@ -1,0 +1,12 @@
+{
+  "_comment": "One entry per remote device this dashboard pulls session logs from. 'srv' itself is not listed here — its logs are bind-mounted directly in docker-compose.yml, no pull needed.",
+  "devices": [
+    {
+      "name": "laptop",
+      "host": "REPLACE_ME",
+      "user": "REPLACE_ME",
+      "port": 22,
+      "remote_path": "~/.claude/projects/"
+    }
+  ]
+}

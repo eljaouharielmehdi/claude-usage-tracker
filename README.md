@@ -41,6 +41,16 @@ needed, it's read live on each poll.
   caching is shaving off the bill, using the same `pricing.json` rates.
 - Session logs are mounted **read-only**; the container never writes to them.
 
+## Multi-device (optional)
+
+Each device can run this dashboard standalone against its own
+`~/.claude/projects` — that's the default setup above and needs nothing
+extra. To additionally see everyone's usage combined in one dashboard
+(broken down by device in the "By device" panel and the sessions table),
+one machine can pull other devices' logs in over SSH/rsync — see
+**`sync/README.md`**. This is opt-in and pull-only: no device needs to
+expose anything beyond the SSH server it likely already has.
+
 ## Network traffic to Anthropic (optional, host-level)
 
 The dashboard also shows a "Network traffic to Anthropic" panel — real
