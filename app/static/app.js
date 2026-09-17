@@ -13,6 +13,10 @@ let lastTokenSeries = [];
 let lastNetSeries = [];
 let showTokenTable = false;
 let showNetTable = false;
+let showModelTable = false;
+let showProjectTable = false;
+let lastByModel = [];
+let lastByProject = [];
 
 function formatTokens(n) {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(2) + "M";
@@ -153,25 +157,57 @@ function renderPeriodStats(containerId, totals, rateLimitHits) {
   );
 }
 
-// Tool usage — horizontal bars, direct-labeled so no legend is needed.
-function renderToolUsage(toolUsage) {
-  const container = document.getElementById("tool-usage-bars");
-  if (!toolUsage.length) {
-    container.replaceChildren(el("div", { class: "empty" }, ["No tool calls recorded yet"]));
+// Horizontal bars, direct-labeled so no legend is needed.
+// rows: [{ name, value, label, color }], bars sized relative to the max value.
+function renderHorizontalBars(containerId, rows, emptyText) {
+  const container = document.getElementById(containerId);
+  if (!rows.length) {
+    container.replaceChildren(el("div", { class: "empty" }, [emptyText]));
     return;
   }
-  const max = Math.max(...toolUsage.map(t => t.count), 1);
-  container.replaceChildren(...toolUsage.map((t, i) => {
-    const color = t.tool === "Other" ? "var(--text-muted)" : `var(${SERIES_VARS[i % SERIES_VARS.length]})`;
-    const pct = Math.max((t.count / max) * 100, 2);
+  const max = Math.max(...rows.map(r => r.value), Number.EPSILON);
+  container.replaceChildren(...rows.map(r => {
+    const pct = Math.max((r.value / max) * 100, 2);
     return el("div", { class: "tool-bar-row" }, [
-      el("div", { class: "tool-bar-name" }, [t.tool]),
+      el("div", { class: "tool-bar-name", title: r.name }, [r.name]),
       el("div", { class: "tool-bar-track" }, [
-        el("div", { class: "tool-bar-fill", style: `width:${pct}%;background:${color}` }),
+        el("div", { class: "tool-bar-fill", style: `width:${pct}%;background:${r.color}` }),
       ]),
-      el("div", { class: "tool-bar-count" }, [String(t.count)]),
+      el("div", { class: "tool-bar-count" }, [r.label]),
     ]);
   }));
+}
+
+function renderToolUsage(toolUsage) {
+  renderHorizontalBars("tool-usage-bars", toolUsage.map((t, i) => ({
+    name: t.tool,
+    value: t.count,
+    label: String(t.count),
+    color: t.tool === "Other" ? "var(--text-muted)" : `var(${SERIES_VARS[i % SERIES_VARS.length]})`,
+  })), "No tool calls recorded yet");
+}
+
+function totalTokens(totals) {
+  return totals.input_tokens + totals.output_tokens
+    + totals.cache_creation_input_tokens + totals.cache_read_input_tokens;
+}
+
+function renderModelBars(byModel) {
+  renderHorizontalBars("model-bars", byModel.map(m => ({
+    name: m.model,
+    value: m.totals.cost_usd,
+    label: `${formatCost(m.totals.cost_usd)} \u00b7 ${formatTokens(totalTokens(m.totals))}`,
+    color: colorFor(m.model),
+  })), "No usage yet");
+}
+
+function renderProjectBars(byProject) {
+  renderHorizontalBars("project-bars", byProject.map((p, i) => ({
+    name: p.project,
+    value: p.totals.cost_usd,
+    label: `${formatCost(p.totals.cost_usd)} \u00b7 ${formatTokens(totalTokens(p.totals))}`,
+    color: `var(${SERIES_VARS[i % SERIES_VARS.length]})`,
+  })), "No usage yet");
 }
 
 function renderLegend(containerId, entries) {
@@ -435,8 +471,10 @@ async function refresh() {
     renderLegend("chart-legend", modelOrder.map(m => ({ label: m, color: colorFor(m) })));
     renderTokenChart(data.timeseries, modelOrder);
     if (showTokenTable) renderTokenTable(modelOrder);
-    renderModelTable(data.by_model);
-    renderProjectTable(data.by_project);
+    lastByModel = data.by_model;
+    lastByProject = data.by_project;
+    if (showModelTable) renderModelTable(data.by_model); else renderModelBars(data.by_model);
+    if (showProjectTable) renderProjectTable(data.by_project); else renderProjectBars(data.by_project);
     renderToolUsage(data.tool_usage);
     renderSessionTable(data.sessions);
     renderNetworkPanel(data.network);
@@ -474,6 +512,22 @@ document.getElementById("chart-table-toggle").addEventListener("click", (e) => {
   document.getElementById("chart-wrap").hidden = showTokenTable;
   e.target.textContent = showTokenTable ? "View as chart" : "View as table";
   if (showTokenTable) renderTokenTable([...modelColor.keys()]);
+});
+
+document.getElementById("model-table-toggle").addEventListener("click", (e) => {
+  showModelTable = !showModelTable;
+  document.getElementById("model-table-wrap").hidden = !showModelTable;
+  document.getElementById("model-bars").hidden = showModelTable;
+  e.target.textContent = showModelTable ? "View as chart" : "View as table";
+  if (showModelTable) renderModelTable(lastByModel); else renderModelBars(lastByModel);
+});
+
+document.getElementById("project-table-toggle").addEventListener("click", (e) => {
+  showProjectTable = !showProjectTable;
+  document.getElementById("project-table-wrap").hidden = !showProjectTable;
+  document.getElementById("project-bars").hidden = showProjectTable;
+  e.target.textContent = showProjectTable ? "View as chart" : "View as table";
+  if (showProjectTable) renderProjectTable(lastByProject); else renderProjectBars(lastByProject);
 });
 
 document.getElementById("net-table-toggle").addEventListener("click", (e) => {

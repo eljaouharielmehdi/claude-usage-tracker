@@ -355,7 +355,7 @@ th.num { text-align: right; }
 /* Tool usage — horizontal bars, direct-labeled (no legend needed) */
 .tool-bar-row {
   display: grid;
-  grid-template-columns: 140px 1fr 56px;
+  grid-template-columns: minmax(120px, 220px) 1fr auto;
   align-items: center;
   gap: 10px;
   padding: 5px 0;
@@ -383,6 +383,7 @@ th.num { text-align: right; }
   font-variant-numeric: tabular-nums;
   color: var(--text-secondary);
   text-align: right;
+  white-space: nowrap;
 }
 
 .empty { color: var(--text-muted); font-style: italic; padding: 8px 0; }
