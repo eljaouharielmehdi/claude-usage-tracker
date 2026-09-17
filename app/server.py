@@ -112,6 +112,15 @@ def parse_timestamp(timestamp):
         return None
 
 
+BUCKET_SECONDS = 5 * 60  # chart resolution for both the token and network 24h charts
+
+
+def bucket_key(epoch):
+    """Floors an epoch to a fixed-width 5-minute bucket label, e.g. '2026-09-17T18:35'."""
+    floored = epoch - (epoch % BUCKET_SECONDS)
+    return time.strftime("%Y-%m-%dT%H:%M", time.gmtime(floored))
+
+
 def iter_session_files():
     if not PROJECTS_DIR.exists():
         return
@@ -156,22 +165,19 @@ def compute_network_stats():
 
     now = time.time()
     day_ago = now - 24 * 3600
-    hourly_buckets = {}
+    buckets = {}
     for row in rows:
-        timestamp = row.get("timestamp")
-        epoch = parse_timestamp(timestamp)
-        if epoch is None:
+        epoch = parse_timestamp(row.get("timestamp"))
+        if epoch is None or epoch < day_ago:
             continue
-        if epoch < day_ago:
-            continue
-        bucket_key = timestamp[:13]
-        bucket = hourly_buckets.setdefault(bucket_key, {"sent": 0, "received": 0})
+        key = bucket_key(epoch)
+        bucket = buckets.setdefault(key, {"sent": 0, "received": 0})
         bucket["sent"] += row.get("bytes_sent_delta", 0) or 0
         bucket["received"] += row.get("bytes_received_delta", 0) or 0
 
     timeseries = [
-        {"hour": hour, "sent": b["sent"], "received": b["received"], "total": b["sent"] + b["received"]}
-        for hour, b in sorted(hourly_buckets.items())
+        {"bucket": key, "sent": b["sent"], "received": b["received"], "total": b["sent"] + b["received"]}
+        for key, b in sorted(buckets.items())
     ]
 
     last = rows[-1]
@@ -195,7 +201,7 @@ def compute_stats():
     by_model = {}
     by_project = {}
     sessions = {}
-    hourly_buckets = {}  # "YYYY-MM-DDTHH" -> {model: tokens}
+    hourly_buckets = {}  # 5-minute bucket label -> {model: tokens}
     tool_counts = Counter()
     global_turn_durations_ms = []
 
@@ -299,9 +305,9 @@ def compute_stats():
                 add_usage(week_totals, usage, model, pricing)
 
             if epoch and epoch >= day_ago:
-                bucket_key = timestamp[:13]  # YYYY-MM-DDTHH
+                key = bucket_key(epoch)
                 tok = (usage.get("input_tokens", 0) or 0) + (usage.get("output_tokens", 0) or 0)
-                bucket = hourly_buckets.setdefault(bucket_key, {})
+                bucket = hourly_buckets.setdefault(key, {})
                 bucket[model] = bucket.get(model, 0) + tok
 
     session_list = []
@@ -330,8 +336,8 @@ def compute_stats():
     model_list.sort(key=lambda m: m["totals"]["cost_usd"], reverse=True)
 
     timeseries = [
-        {"hour": hour, "by_model": models, "total": sum(models.values())}
-        for hour, models in sorted(hourly_buckets.items())
+        {"bucket": key, "by_model": models, "total": sum(models.values())}
+        for key, models in sorted(hourly_buckets.items())
     ]
     model_order = sorted(by_model.keys())
 

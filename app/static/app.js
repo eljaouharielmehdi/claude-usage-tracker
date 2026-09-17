@@ -31,6 +31,11 @@ function formatTime(iso) {
   return new Date(iso).toLocaleString();
 }
 
+function bucketLabel(point) {
+  // point.bucket is "YYYY-MM-DDTHH:MM" (UTC, floored to a 5-minute step).
+  return point.bucket.slice(11, 16);
+}
+
 function formatDuration(ms) {
   if (ms === null || ms === undefined) return "-";
   const totalSeconds = Math.round(ms / 1000);
@@ -189,8 +194,8 @@ function renderStackedChart({ wrapEl, chartEl, axisEl, timeseries, seriesOf, for
       return el("div", { class: "seg", style: `height:${pct}%;background:${color}` });
     });
     const col = el("div", { class: "bar-col" }, segs);
-    const hourLabel = point.hour.slice(11, 13) + ":00";
-    const open = () => showTooltip(wrapEl, col, hourLabel, series, formatValue);
+    const label = bucketLabel(point);
+    const open = () => showTooltip(wrapEl, col, label, series, formatValue);
     const close = () => hideTooltip(wrapEl);
     col.addEventListener("pointerenter", open);
     col.addEventListener("pointerleave", close);
@@ -202,8 +207,11 @@ function renderStackedChart({ wrapEl, chartEl, axisEl, timeseries, seriesOf, for
 
   chartEl.replaceChildren(gridlines, ...bars);
 
+  // Aim for roughly a dozen axis labels regardless of how fine the buckets
+  // are (5-minute buckets over 24h means ~288 bars — too many to label each).
+  const labelEvery = Math.max(1, Math.ceil(timeseries.length / 12));
   axisEl.replaceChildren(...timeseries.map((point, i) => {
-    const label = i % 3 === 0 ? point.hour.slice(11, 13) + ":00" : "";
+    const label = i % labelEvery === 0 ? bucketLabel(point) : "";
     return el("span", {}, [label]);
   }));
 }
@@ -215,12 +223,12 @@ function renderChartTable(containerId, timeseries, columns, formatValue) {
     return;
   }
   const thead = el("tr", {}, [
-    el("th", {}, ["Hour"]),
+    el("th", {}, ["Time"]),
     ...columns.map(c => el("th", { class: "num" }, [c.label])),
     el("th", { class: "num" }, ["Total"]),
   ]);
   const rows = timeseries.map(point => el("tr", {}, [
-    el("td", {}, [point.hour.slice(11, 13) + ":00"]),
+    el("td", {}, [bucketLabel(point)]),
     ...columns.map(c => el("td", { class: "num" }, [formatValue(c.get(point) || 0)])),
     el("td", { class: "num" }, [formatValue(point.total)]),
   ]));
