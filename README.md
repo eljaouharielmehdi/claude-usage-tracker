@@ -29,7 +29,16 @@ needed, it's read live on each poll.
   `~/.claude/projects` directory, pulling `message.usage` and `message.model`
   out of assistant turns (input/output/cache-write/cache-read tokens).
 - Stats are aggregated globally, by model, by project, and by session, plus
-  an hourly token chart for the last 24h.
+  token and network charts with a selectable window: 1h (1-min bars), 24h
+  (5-min), 7d (hourly), 30d (6-hour) or 1y (daily). Each chart remembers
+  its own choice in the browser. `/api/stats?range=7d&net_range=1h` is the
+  underlying call.
+- Parsed results are cached per file keyed on `(mtime, size)`, so a poll
+  only re-reads the session log that is actually being written to — the
+  cost of a poll stays flat as old logs pile up.
+- "Saved by caching" is what your cache-read tokens would have cost at the
+  full input rate minus what they actually cost — i.e. how much prompt
+  caching is shaving off the bill, using the same `pricing.json` rates.
 - Session logs are mounted **read-only**; the container never writes to them.
 
 ## Network traffic to Anthropic (optional, host-level)
@@ -56,3 +65,6 @@ full comparison.
 - Port 61209 was picked to sit next to the existing Glances container on
   61208 — change the `ports:` mapping in `docker-compose.yml` if it
   collides with something else.
+- There is no authentication. The page shows project paths and spend, so
+  if you don't need LAN access, bind it to localhost only:
+  `"127.0.0.1:61209:8687"` in `docker-compose.yml`.
