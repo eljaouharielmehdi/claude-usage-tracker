@@ -95,6 +95,28 @@ docker compose up -d --build
 `config/` is gitignored (it holds each device's own seeded pricing file),
 so pulling never overwrites your local rates.
 
+## 7. Network traffic panel (optional, native Linux only)
+
+The "Network traffic to Anthropic" panel needs the separate host-level
+`netmon/` service (iptables + ipset accounting, root-owned systemd
+service) — see `netmon/README.md` for what it installs and
+`netmon/setup_iptables.sh` / `netmon/collector.py` for the actual setup
+steps (there's no one-liner for this part, it's a few sequential root
+commands, walked through in that README).
+
+**On WSL2 (Windows host), this piece likely won't work as-is:**
+- The WSL2 Linux VM has its own network stack, separate from Windows — it
+  only sees traffic from processes running *inside* WSL (so Claude Code
+  CLI run from a WSL shell would count, but a Windows-native browser or
+  Claude Desktop for Windows would not, even on the same machine).
+- Many stock WSL2 kernels don't ship with `iptables`/`ipset`/netfilter
+  support compiled in at all — check with `sudo iptables -L` and
+  `which ipset` before assuming this will work; if either fails, this
+  feature isn't available there without a custom WSL2 kernel.
+- The Docker/dashboard half of this project (tokens, cost) is unaffected
+  either way — it's only this network-bytes panel that's Linux/conntrack-
+  and-iptables-specific.
+
 ## If you ever want one combined view across all devices
 
 That would mean either:

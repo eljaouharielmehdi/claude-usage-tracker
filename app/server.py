@@ -26,6 +26,7 @@ logger = logging.getLogger("claude-usage-tracker")
 PROJECTS_DIR = Path(os.environ.get("CLAUDE_PROJECTS_DIR", "/data/projects"))
 PRICING_PATH = Path(os.environ.get("PRICING_CONFIG", "/config/pricing.json"))
 DEFAULT_PRICING_PATH = Path(__file__).parent / "pricing_defaults.json"
+NETWORK_LOG_PATH = Path(os.environ.get("NETWORK_LOG_PATH", "/data/network/anthropic_traffic.jsonl"))
 CACHE_SECONDS = float(os.environ.get("REFRESH_SECONDS", "2"))
 
 app = Flask(__name__, static_folder="static", static_url_path="")
@@ -98,6 +99,74 @@ def iter_session_files():
         return
     for path in glob.glob(str(PROJECTS_DIR / "*" / "*.jsonl")):
         yield Path(path)
+
+
+def compute_network_stats():
+    """Reads the Anthropic network-traffic log written by netmon/collector.py
+    (a host-level systemd service — see netmon/README.md). Device-wide, not
+    Claude-Code-specific: see that README for why."""
+    unavailable = {
+        "available": False,
+        "bytes_sent_total": 0,
+        "bytes_received_total": 0,
+        "last_sample_at": None,
+        "timeseries": [],
+    }
+    if not NETWORK_LOG_PATH.exists():
+        return unavailable
+
+    try:
+        with open(NETWORK_LOG_PATH, "r", errors="ignore") as f:
+            lines = f.readlines()
+    except OSError:
+        return unavailable
+
+    # Cap how much we parse — at one row/minute this is ~2 weeks of history,
+    # comfortably more than the 24h chart needs.
+    rows = []
+    for line in lines[-20000:]:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rows.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+
+    if not rows:
+        return unavailable
+
+    now = time.time()
+    day_ago = now - 24 * 3600
+    hourly_buckets = {}
+    for row in rows:
+        timestamp = row.get("timestamp")
+        if not timestamp:
+            continue
+        try:
+            epoch = time.mktime(time.strptime(timestamp[:19], "%Y-%m-%dT%H:%M:%S"))
+        except ValueError:
+            continue
+        if epoch < day_ago:
+            continue
+        bucket_key = timestamp[:13]
+        bucket = hourly_buckets.setdefault(bucket_key, {"sent": 0, "received": 0})
+        bucket["sent"] += row.get("bytes_sent_delta", 0) or 0
+        bucket["received"] += row.get("bytes_received_delta", 0) or 0
+
+    timeseries = [
+        {"hour": hour, "sent": b["sent"], "received": b["received"], "total": b["sent"] + b["received"]}
+        for hour, b in sorted(hourly_buckets.items())
+    ]
+
+    last = rows[-1]
+    return {
+        "available": True,
+        "bytes_sent_total": last.get("bytes_sent_cumulative", 0),
+        "bytes_received_total": last.get("bytes_received_cumulative", 0),
+        "last_sample_at": last.get("timestamp"),
+        "timeseries": timeseries,
+    }
 
 
 def compute_stats():
@@ -218,6 +287,7 @@ def compute_stats():
         "by_project": project_list,
         "sessions": session_list[:50],
         "timeseries": timeseries,
+        "network": compute_network_stats(),
         "active_sessions_5min": sum(
             1 for s in session_list
             if s["last_activity"] and

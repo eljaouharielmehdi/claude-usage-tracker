@@ -1,15 +1,25 @@
 const REFRESH_MS = 2000;
 const SERIES_VARS = ["--series-1", "--series-2", "--series-3", "--series-4",
                       "--series-5", "--series-6", "--series-7", "--series-8"];
+const NET_COLORS = { sent: "var(--series-1)", received: "var(--series-2)" };
 
 let modelColor = new Map();      // model name -> css var()
-let lastTimeseries = [];
-let showChartTable = false;
+let lastTokenSeries = [];
+let lastNetSeries = [];
+let showTokenTable = false;
+let showNetTable = false;
 
 function formatTokens(n) {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(2) + "M";
   if (n >= 1_000) return (n / 1_000).toFixed(1) + "k";
   return String(n);
+}
+
+function formatBytes(n) {
+  if (n >= 1024 ** 3) return (n / 1024 ** 3).toFixed(2) + " GB";
+  if (n >= 1024 ** 2) return (n / 1024 ** 2).toFixed(1) + " MB";
+  if (n >= 1024) return (n / 1024).toFixed(1) + " KB";
+  return n + " B";
 }
 
 function formatCost(n) {
@@ -65,56 +75,50 @@ function renderStatGrid(data) {
   ])));
 }
 
-function renderLegend(modelOrder) {
-  const legend = document.getElementById("chart-legend");
-  if (modelOrder.length <= 1) {
+function renderLegend(containerId, entries) {
+  const legend = document.getElementById(containerId);
+  if (entries.length <= 1) {
     legend.replaceChildren();
     return;
   }
-  legend.replaceChildren(...modelOrder.map(model => el("span", { class: "legend-item" }, [
-    el("span", { class: "swatch", style: `background:${colorFor(model)}` }),
-    el("span", {}, [model]),
+  legend.replaceChildren(...entries.map(({ label, color }) => el("span", { class: "legend-item" }, [
+    el("span", { class: "swatch", style: `background:${color}` }),
+    el("span", {}, [label]),
   ])));
 }
 
-function hideTooltip() {
-  const existing = document.getElementById("chart-tooltip");
+// --- Generic stacked bar chart with hover tooltip -------------------------
+// `seriesOf(point)` returns [[label, value, color], ...] for that hour.
+// `wrapEl`/`chartEl`/`axisEl` are this chart's own DOM nodes (each chart
+// gets its own tooltip element, scoped to its own wrapper).
+
+function hideTooltip(wrapEl) {
+  const existing = wrapEl.querySelector(".tooltip");
   if (existing) existing.remove();
 }
 
-function showTooltip(anchorEl, point) {
-  hideTooltip();
-  const chartWrap = document.querySelector(".chart-wrap");
-  const hourLabel = point.hour.slice(11, 13) + ":00";
-
-  const rows = Object.entries(point.by_model)
-    .sort((a, b) => b[1] - a[1])
-    .map(([model, tokens]) => el("div", { class: "t-row" }, [
-      el("span", { class: "swatch", style: `background:${colorFor(model)};width:10px;height:3px;border-radius:2px;` }),
-      el("span", {}, [model]),
-      el("span", { class: "t-value" }, [formatTokens(tokens)]),
-    ]));
-
-  const tooltip = el("div", { class: "tooltip", id: "chart-tooltip" }, [
+function showTooltip(wrapEl, anchorEl, hourLabel, rows, formatValue) {
+  hideTooltip(wrapEl);
+  const tooltip = el("div", { class: "tooltip" }, [
     el("div", { class: "t-title" }, [hourLabel]),
-    ...rows,
+    ...rows.map(([label, value, color]) => el("div", { class: "t-row" }, [
+      el("span", { class: "swatch", style: `background:${color};width:10px;height:3px;border-radius:2px;` }),
+      el("span", {}, [label]),
+      el("span", { class: "t-value" }, [formatValue(value)]),
+    ])),
   ]);
-  chartWrap.appendChild(tooltip);
+  wrapEl.appendChild(tooltip);
 
   const barRect = anchorEl.getBoundingClientRect();
-  const wrapRect = chartWrap.getBoundingClientRect();
+  const wrapRect = wrapEl.getBoundingClientRect();
   tooltip.style.left = (barRect.left - wrapRect.left + barRect.width / 2) + "px";
   tooltip.style.top = (barRect.top - wrapRect.top - 6) + "px";
 }
 
-function renderChart(timeseries, modelOrder) {
-  lastTimeseries = timeseries;
-  const chart = document.getElementById("chart");
-  const axis = document.getElementById("chart-axis");
-
+function renderStackedChart({ wrapEl, chartEl, axisEl, timeseries, seriesOf, formatValue }) {
   if (!timeseries.length) {
-    chart.replaceChildren(el("div", { class: "empty" }, ["No activity in the last 24h"]));
-    axis.replaceChildren();
+    chartEl.replaceChildren(el("div", { class: "empty" }, ["No activity in the last 24h"]));
+    axisEl.replaceChildren();
     return;
   }
 
@@ -122,49 +126,129 @@ function renderChart(timeseries, modelOrder) {
   const gridlines = el("div", { class: "gridlines" }, [0, 1, 2, 3].map(() => el("div")));
 
   const bars = timeseries.map(point => {
-    const segs = modelOrder
-      .filter(model => point.by_model[model])
-      .map(model => {
-        const tokens = point.by_model[model];
-        const pct = Math.max((tokens / max) * 100, tokens > 0 ? 1.5 : 0);
-        return el("div", { class: "seg", style: `height:${pct}%;background:${colorFor(model)}` });
-      });
+    const series = seriesOf(point).filter(([, value]) => value > 0);
+    const segs = series.map(([, value, color]) => {
+      const pct = Math.max((value / max) * 100, 1.5);
+      return el("div", { class: "seg", style: `height:${pct}%;background:${color}` });
+    });
     const col = el("div", { class: "bar-col" }, segs);
-    col.addEventListener("pointerenter", () => showTooltip(col, point));
-    col.addEventListener("pointerleave", hideTooltip);
-    col.addEventListener("focus", () => showTooltip(col, point));
-    col.addEventListener("blur", hideTooltip);
+    const hourLabel = point.hour.slice(11, 13) + ":00";
+    const open = () => showTooltip(wrapEl, col, hourLabel, series, formatValue);
+    const close = () => hideTooltip(wrapEl);
+    col.addEventListener("pointerenter", open);
+    col.addEventListener("pointerleave", close);
+    col.addEventListener("focus", open);
+    col.addEventListener("blur", close);
     col.tabIndex = 0;
     return col;
   });
 
-  chart.replaceChildren(gridlines, ...bars);
+  chartEl.replaceChildren(gridlines, ...bars);
 
-  // Sparse x-axis labels — every 3rd hour, to avoid crowding 24 columns.
-  axis.replaceChildren(...timeseries.map((point, i) => {
+  axisEl.replaceChildren(...timeseries.map((point, i) => {
     const label = i % 3 === 0 ? point.hour.slice(11, 13) + ":00" : "";
     return el("span", {}, [label]);
   }));
 }
 
-function renderChartTable(timeseries, modelOrder) {
-  const container = document.getElementById("chart-table");
+function renderChartTable(containerId, timeseries, columns, formatValue) {
+  const container = document.getElementById(containerId);
   if (!timeseries.length) {
     container.replaceChildren(el("div", { class: "empty" }, ["No activity in the last 24h"]));
     return;
   }
   const thead = el("tr", {}, [
     el("th", {}, ["Hour"]),
-    ...modelOrder.map(m => el("th", { class: "num" }, [m])),
+    ...columns.map(c => el("th", { class: "num" }, [c.label])),
     el("th", { class: "num" }, ["Total"]),
   ]);
   const rows = timeseries.map(point => el("tr", {}, [
     el("td", {}, [point.hour.slice(11, 13) + ":00"]),
-    ...modelOrder.map(m => el("td", { class: "num" }, [formatTokens(point.by_model[m] || 0)])),
-    el("td", { class: "num" }, [formatTokens(point.total)]),
+    ...columns.map(c => el("td", { class: "num" }, [formatValue(c.get(point) || 0)])),
+    el("td", { class: "num" }, [formatValue(point.total)]),
   ]));
   const table = el("table", {}, [el("thead", {}, [thead]), el("tbody", {}, rows)]);
   container.replaceChildren(table);
+}
+
+// --- Token chart -----------------------------------------------------------
+
+function renderTokenChart(timeseries, modelOrder) {
+  lastTokenSeries = timeseries;
+  renderStackedChart({
+    wrapEl: document.getElementById("chart-wrap"),
+    chartEl: document.getElementById("chart"),
+    axisEl: document.getElementById("chart-axis"),
+    timeseries,
+    seriesOf: point => modelOrder.map(model => [model, point.by_model[model] || 0, colorFor(model)]),
+    formatValue: formatTokens,
+  });
+}
+
+// --- Network chart -----------------------------------------------------------
+
+function renderNetworkChart(timeseries) {
+  lastNetSeries = timeseries;
+  renderStackedChart({
+    wrapEl: document.getElementById("net-chart-wrap"),
+    chartEl: document.getElementById("net-chart"),
+    axisEl: document.getElementById("net-chart-axis"),
+    timeseries,
+    seriesOf: point => [
+      ["Sent", point.sent, NET_COLORS.sent],
+      ["Received", point.received, NET_COLORS.received],
+    ],
+    formatValue: formatBytes,
+  });
+}
+
+function renderNetworkPanel(network) {
+  const unavailableEl = document.getElementById("network-unavailable");
+  const bodyEl = document.getElementById("network-body");
+
+  if (!network || !network.available) {
+    unavailableEl.hidden = false;
+    bodyEl.hidden = true;
+    return;
+  }
+  unavailableEl.hidden = true;
+  bodyEl.hidden = false;
+
+  const stats = document.getElementById("net-stats");
+  stats.replaceChildren(
+    el("div", { class: "stat-card" }, [
+      el("div", { class: "label" }, ["Sent to Anthropic"]),
+      el("div", { class: "value" }, [formatBytes(network.bytes_sent_total)]),
+    ]),
+    el("div", { class: "stat-card" }, [
+      el("div", { class: "label" }, ["Received from Anthropic"]),
+      el("div", { class: "value" }, [formatBytes(network.bytes_received_total)]),
+    ]),
+    el("div", { class: "stat-card" }, [
+      el("div", { class: "label" }, ["Last sample"]),
+      el("div", { class: "value" }, [formatTime(network.last_sample_at)]),
+    ]),
+  );
+
+  renderLegend("net-legend", [
+    { label: "Sent", color: NET_COLORS.sent },
+    { label: "Received", color: NET_COLORS.received },
+  ]);
+  renderNetworkChart(network.timeseries);
+  if (showNetTable) renderNetTable();
+}
+
+function renderNetTable() {
+  renderChartTable("net-chart-table", lastNetSeries, [
+    { label: "Sent", get: p => p.sent },
+    { label: "Received", get: p => p.received },
+  ], formatBytes);
+}
+
+function renderTokenTable(modelOrder) {
+  renderChartTable("chart-table", lastTokenSeries,
+    modelOrder.map(m => ({ label: m, get: p => p.by_model[m] })),
+    formatTokens);
 }
 
 function renderModelTable(byModel) {
@@ -234,12 +318,13 @@ async function refresh() {
 
     assignModelColors(modelOrder);
     renderStatGrid(data);
-    renderLegend(modelOrder);
-    renderChart(data.timeseries, modelOrder);
-    if (showChartTable) renderChartTable(data.timeseries, modelOrder);
+    renderLegend("chart-legend", modelOrder.map(m => ({ label: m, color: colorFor(m) })));
+    renderTokenChart(data.timeseries, modelOrder);
+    if (showTokenTable) renderTokenTable(modelOrder);
     renderModelTable(data.by_model);
     renderProjectTable(data.by_project);
     renderSessionTable(data.sessions);
+    renderNetworkPanel(data.network);
 
     dot.classList.remove("stale");
     updatedAt.textContent = "updated " + new Date().toLocaleTimeString();
@@ -251,14 +336,19 @@ async function refresh() {
 }
 
 document.getElementById("chart-table-toggle").addEventListener("click", (e) => {
-  showChartTable = !showChartTable;
-  document.getElementById("chart-table").hidden = !showChartTable;
-  document.querySelector(".chart-wrap").hidden = showChartTable;
-  e.target.textContent = showChartTable ? "View as chart" : "View as table";
-  if (showChartTable) {
-    const modelOrder = [...modelColor.keys()];
-    renderChartTable(lastTimeseries, modelOrder);
-  }
+  showTokenTable = !showTokenTable;
+  document.getElementById("chart-table").hidden = !showTokenTable;
+  document.getElementById("chart-wrap").hidden = showTokenTable;
+  e.target.textContent = showTokenTable ? "View as chart" : "View as table";
+  if (showTokenTable) renderTokenTable([...modelColor.keys()]);
+});
+
+document.getElementById("net-table-toggle").addEventListener("click", (e) => {
+  showNetTable = !showNetTable;
+  document.getElementById("net-chart-table").hidden = !showNetTable;
+  document.getElementById("net-chart-wrap").hidden = showNetTable;
+  e.target.textContent = showNetTable ? "View as chart" : "View as table";
+  if (showNetTable) renderNetTable();
 });
 
 refresh();

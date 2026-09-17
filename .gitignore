@@ -4,3 +4,7 @@ config/
 
 __pycache__/
 *.pyc
+
+# Collector output — host-specific, grows continuously, not meant to be
+# checked in (each device generates its own).
+netmon/data/

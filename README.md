@@ -32,10 +32,23 @@ needed, it's read live on each poll.
   an hourly token chart for the last 24h.
 - Session logs are mounted **read-only**; the container never writes to them.
 
+## Network traffic to Anthropic (optional, host-level)
+
+The dashboard also shows a "Network traffic to Anthropic" panel — real
+bytes sent/received, not token counts — if a small host-level collector
+service is set up. This needs root and touches iptables, so it's kept
+separate from the Docker app: see **`netmon/README.md`** for what it does
+and how to install it. Without it, that panel just shows "no data yet".
+
+This is genuinely a different, complementary metric from the token counts
+above (device-wide network bytes including protocol overhead, vs. exact
+per-message Claude Code token counts) — see `netmon/README.md` for the
+full comparison.
+
 ## Notes
 
-- This tracks Claude Code CLI usage on this machine, not your Anthropic
-  account/API usage as a whole — it only sees what's in
+- Token/cost tracking here is Claude Code CLI usage on this machine, not
+  your Anthropic account/API usage as a whole — it only sees what's in
   `~/.claude/projects`.
 - Project names are decoded from Claude Code's directory-naming scheme
   (path separators become `-`) — best-effort, may be slightly off for paths

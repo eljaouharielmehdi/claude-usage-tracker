@@ -9,5 +9,7 @@ services:
       # Read-only: the app only ever reads these session logs, never writes to them.
       - ${HOME}/.claude/projects:/data/projects:ro
       - ./config:/config
+      # Written by the host-level anthropic-netmon systemd service (see netmon/).
+      - ./netmon/data:/data/network:ro
     environment:
       - REFRESH_SECONDS=2

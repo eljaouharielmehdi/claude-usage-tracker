@@ -24,11 +24,31 @@
       <button class="table-toggle" id="chart-table-toggle" type="button">View as table</button>
     </div>
     <div class="legend" id="chart-legend"></div>
-    <div class="chart-wrap">
+    <div class="chart-wrap" id="chart-wrap">
       <div class="chart" id="chart"></div>
       <div class="chart-axis" id="chart-axis"></div>
     </div>
     <div class="chart-table" id="chart-table" hidden></div>
+  </section>
+
+  <section class="panel" id="network-panel">
+    <div class="panel-head">
+      <h2>Network traffic to Anthropic — last 24h</h2>
+      <button class="table-toggle" id="net-table-toggle" type="button">View as table</button>
+    </div>
+    <div id="network-body">
+      <div class="net-stats" id="net-stats"></div>
+      <div class="legend" id="net-legend"></div>
+      <div class="chart-wrap" id="net-chart-wrap">
+        <div class="chart" id="net-chart"></div>
+        <div class="chart-axis" id="net-chart-axis"></div>
+      </div>
+      <div class="chart-table" id="net-chart-table" hidden></div>
+    </div>
+    <div class="empty" id="network-unavailable" hidden>
+      No network data yet — the <code>anthropic-netmon</code> host service hasn't written a sample.
+      Check it with <code>systemctl status anthropic-netmon</code>.
+    </div>
   </section>
 
   <div class="two-col">
@@ -66,6 +86,7 @@
   <footer>
     Cost is an estimate based on <code>config/pricing.json</code> — edit that file with your actual per-token rates.
     Nothing here leaves this container; all data is read from local session logs.
+    Network traffic is device-wide (any traffic on this machine to Anthropic's IPs), not limited to Claude Code — see <code>netmon/README.md</code>.
   </footer>
 </div>
 
