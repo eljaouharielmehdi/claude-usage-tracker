@@ -7,7 +7,12 @@ services:
       - "61209:8687"
     volumes:
       # Read-only: the app only ever reads these session logs, never writes to them.
-      - ${HOME}/.claude/projects:/data/projects:ro
+      # One entry per device, mounted under /data/devices/<name> — that name
+      # is what shows up in the "By device" panel. This machine's own logs:
+      - ${HOME}/.claude/projects:/data/devices/srv:ro
+      # Remote devices, synced in by sync/pull_devices.py (cron) into
+      # remote_projects/<name>/ — add one line here per device in sync/devices.json.
+      - ./remote_projects/laptop:/data/devices/laptop:ro
       - ./config:/config
       # Written by the host-level anthropic-netmon systemd service (see netmon/).
       - ./netmon/data:/data/network:ro

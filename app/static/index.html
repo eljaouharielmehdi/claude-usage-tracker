@@ -100,6 +100,20 @@
 
   <section class="panel">
     <div class="panel-head">
+      <h2>By device</h2>
+      <button class="table-toggle" id="device-table-toggle" type="button">View as table</button>
+    </div>
+    <div id="device-bars"></div>
+    <div class="table-scroll" id="device-table-wrap" hidden>
+      <table id="device-table">
+        <thead><tr><th>Device</th><th class="num">Tokens</th><th class="num">Cost</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
       <h2>By project</h2>
       <button class="table-toggle" id="project-table-toggle" type="button">View as table</button>
     </div>
@@ -122,7 +136,7 @@
     <div class="table-scroll">
       <table id="session-table">
         <thead><tr>
-          <th>Last activity</th><th>Project</th><th>Model(s)</th>
+          <th>Last activity</th><th>Device</th><th>Project</th><th>Model(s)</th>
           <th class="num">Messages</th><th class="num">Tokens</th><th class="num">Cost</th>
           <th class="num">Duration</th><th class="num">Avg turn</th>
         </tr></thead>

@@ -8,7 +8,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY server.py pricing_defaults.json ./
 COPY static ./static
 
-ENV CLAUDE_PROJECTS_DIR=/data/projects \
+ENV CLAUDE_PROJECTS_DIR=/data/devices \
     PRICING_CONFIG=/config/pricing.json \
     PORT=8687
 

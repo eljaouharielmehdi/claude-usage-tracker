@@ -15,8 +15,10 @@ let showTokenTable = false;
 let showNetTable = false;
 let showModelTable = false;
 let showProjectTable = false;
+let showDeviceTable = false;
 let lastByModel = [];
 let lastByProject = [];
+let lastByDevice = [];
 
 function formatTokens(n) {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(2) + "M";
@@ -208,6 +210,15 @@ function renderProjectBars(byProject) {
     label: `${formatCost(p.totals.cost_usd)} \u00b7 ${formatTokens(totalTokens(p.totals))}`,
     color: `var(${SERIES_VARS[i % SERIES_VARS.length]})`,
   })), "No usage yet");
+}
+
+function renderDeviceBars(byDevice) {
+  renderHorizontalBars("device-bars", byDevice.map((d, i) => ({
+    name: d.device,
+    value: d.totals.cost_usd,
+    label: `${formatCost(d.totals.cost_usd)} \u00b7 ${formatTokens(totalTokens(d.totals))}`,
+    color: `var(${SERIES_VARS[i % SERIES_VARS.length]})`,
+  })), "No devices reporting yet \u2014 see sync/README.md");
 }
 
 function renderLegend(containerId, entries) {
@@ -430,10 +441,26 @@ function renderProjectTable(byProject) {
   }));
 }
 
+function renderDeviceTable(byDevice) {
+  const tbody = document.querySelector("#device-table tbody");
+  if (!byDevice.length) {
+    tbody.replaceChildren(el("tr", {}, [el("td", { colspan: "3", class: "empty" }, ["No devices reporting yet"])]));
+    return;
+  }
+  tbody.replaceChildren(...byDevice.map(d => {
+    const total = totalTokens(d.totals);
+    return el("tr", {}, [
+      el("td", {}, [d.device]),
+      el("td", { class: "num" }, [formatTokens(total)]),
+      el("td", { class: "num" }, [formatCost(d.totals.cost_usd)]),
+    ]);
+  }));
+}
+
 function renderSessionTable(sessions) {
   const tbody = document.querySelector("#session-table tbody");
   if (!sessions.length) {
-    tbody.replaceChildren(el("tr", {}, [el("td", { colspan: "8", class: "empty" }, ["No sessions yet"])]));
+    tbody.replaceChildren(el("tr", {}, [el("td", { colspan: "9", class: "empty" }, ["No sessions yet"])]));
     return;
   }
   tbody.replaceChildren(...sessions.map(s => {
@@ -441,6 +468,7 @@ function renderSessionTable(sessions) {
       + s.totals.cache_creation_input_tokens + s.totals.cache_read_input_tokens;
     return el("tr", {}, [
       el("td", {}, [formatTime(s.last_activity)]),
+      el("td", {}, [s.device]),
       el("td", {}, [s.project]),
       el("td", {}, s.models.flatMap(m => [
         el("span", { class: "swatch", style: `background:${colorFor(m)}` }),
@@ -553,8 +581,10 @@ async function refresh() {
     if (showTokenTable) renderTokenTable(modelOrder);
     lastByModel = data.by_model;
     lastByProject = data.by_project;
+    lastByDevice = data.by_device;
     if (showModelTable) renderModelTable(data.by_model); else renderModelBars(data.by_model);
     if (showProjectTable) renderProjectTable(data.by_project); else renderProjectBars(data.by_project);
+    if (showDeviceTable) renderDeviceTable(data.by_device); else renderDeviceBars(data.by_device);
     renderToolUsage(data.tool_usage);
     renderSessionTable(data.sessions);
     renderNetworkPanel(data.network);
@@ -609,6 +639,14 @@ document.getElementById("project-table-toggle").addEventListener("click", (e) =>
   document.getElementById("project-bars").hidden = showProjectTable;
   e.target.textContent = showProjectTable ? "View as chart" : "View as table";
   if (showProjectTable) renderProjectTable(lastByProject); else renderProjectBars(lastByProject);
+});
+
+document.getElementById("device-table-toggle").addEventListener("click", (e) => {
+  showDeviceTable = !showDeviceTable;
+  document.getElementById("device-table-wrap").hidden = !showDeviceTable;
+  document.getElementById("device-bars").hidden = showDeviceTable;
+  e.target.textContent = showDeviceTable ? "View as chart" : "View as table";
+  if (showDeviceTable) renderDeviceTable(lastByDevice); else renderDeviceBars(lastByDevice);
 });
 
 document.getElementById("net-table-toggle").addEventListener("click", (e) => {

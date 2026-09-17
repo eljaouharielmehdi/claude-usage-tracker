@@ -26,7 +26,7 @@ from waitress import serve
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("claude-usage-tracker")
 
-PROJECTS_DIR = Path(os.environ.get("CLAUDE_PROJECTS_DIR", "/data/projects"))
+PROJECTS_DIR = Path(os.environ.get("CLAUDE_PROJECTS_DIR", "/data/devices"))
 PRICING_PATH = Path(os.environ.get("PRICING_CONFIG", "/config/pricing.json"))
 DEFAULT_PRICING_PATH = Path(__file__).parent / "pricing_defaults.json"
 NETWORK_LOG_PATH = Path(os.environ.get("NETWORK_LOG_PATH", "/data/network/anthropic_traffic.jsonl"))
@@ -86,6 +86,13 @@ def decode_project_name(dirname: str) -> str:
     contain literal hyphens, but good enough for display."""
     name = dirname[1:] if dirname.startswith("-") else dirname
     return "/" + name.replace("-", "/")
+
+
+def device_name(dirname: str) -> str:
+    """Directory names under PROJECTS_DIR are literal device names (not
+    Claude Code's path-encoding scheme) — see docker-compose.yml and
+    sync/README.md."""
+    return dirname
 
 
 def empty_totals():
@@ -151,9 +158,10 @@ def all_bucket_keys(range_start, now, bucket_seconds):
 
 
 def iter_session_files():
+    """Yields every session log under PROJECTS_DIR/<device>/<project>/<session>.jsonl."""
     if not PROJECTS_DIR.exists():
         return
-    for path in glob.glob(str(PROJECTS_DIR / "*" / "*.jsonl")):
+    for path in glob.glob(str(PROJECTS_DIR / "*" / "*" / "*.jsonl")):
         yield Path(path)
 
 
@@ -366,6 +374,7 @@ def compute_stats(token_range, net_range):
     global_totals = empty_totals()
     by_model = {}
     by_project = {}
+    by_device = {}
     sessions = {}
     chart_buckets = {}  # bucket label -> {model: tokens}
     tool_counts = Counter()
@@ -384,6 +393,7 @@ def compute_stats(token_range, net_range):
     seen_paths = set()
     for path in iter_session_files():
         seen_paths.add(path)
+        device = device_name(path.parent.parent.name)
         project_dir = path.parent.name
         project_name = decode_project_name(project_dir)
         session_id = path.stem
@@ -397,6 +407,7 @@ def compute_stats(token_range, net_range):
             session_entry = {
                 "session_id": session_id,
                 "project": project_name,
+                "device": device,
                 "totals": empty_totals(),
                 "first_activity": None,
                 "last_activity": None,
@@ -444,6 +455,9 @@ def compute_stats(token_range, net_range):
             project_totals = by_project.setdefault(project_name, empty_totals())
             add_usage(project_totals, usage, model, pricing)
 
+            device_totals = by_device.setdefault(device, empty_totals())
+            add_usage(device_totals, usage, model, pricing)
+
             if epoch and epoch >= today_start:
                 add_usage(today_totals, usage, model, pricing)
             if epoch and epoch >= week_start:
@@ -467,6 +481,7 @@ def compute_stats(token_range, net_range):
         session_list.append({
             "session_id": s["session_id"],
             "project": s["project"],
+            "device": s["device"],
             "totals": s["totals"],
             "first_activity": s["first_activity"],
             "last_activity": s["last_activity"],
@@ -478,6 +493,9 @@ def compute_stats(token_range, net_range):
 
     project_list = [{"project": name, "totals": totals} for name, totals in by_project.items()]
     project_list.sort(key=lambda p: p["totals"]["cost_usd"], reverse=True)
+
+    device_list = [{"device": name, "totals": totals} for name, totals in by_device.items()]
+    device_list.sort(key=lambda d: d["totals"]["cost_usd"], reverse=True)
 
     model_list = [{"model": name, "totals": totals} for name, totals in by_model.items()]
     model_list.sort(key=lambda m: m["totals"]["cost_usd"], reverse=True)
@@ -502,6 +520,7 @@ def compute_stats(token_range, net_range):
         "by_model": model_list,
         "model_order": model_order,
         "by_project": project_list,
+        "by_device": device_list,
         "sessions": session_list[:50],
         "range": token_range,
         "bucket_seconds": bucket_seconds,
