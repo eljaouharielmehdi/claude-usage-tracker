@@ -30,6 +30,7 @@ PROJECTS_DIR = Path(os.environ.get("CLAUDE_PROJECTS_DIR", "/data/projects"))
 PRICING_PATH = Path(os.environ.get("PRICING_CONFIG", "/config/pricing.json"))
 DEFAULT_PRICING_PATH = Path(__file__).parent / "pricing_defaults.json"
 NETWORK_LOG_PATH = Path(os.environ.get("NETWORK_LOG_PATH", "/data/network/anthropic_traffic.jsonl"))
+QUOTA_STATE_PATH = Path(os.environ.get("QUOTA_STATE_PATH", "/data/quota/usage_state.json"))
 CACHE_SECONDS = float(os.environ.get("REFRESH_SECONDS", "2"))
 
 app = Flask(__name__, static_folder="static", static_url_path="")
@@ -247,6 +248,40 @@ def compute_network_stats(range_key):
 
 def avg(values):
     return sum(values) / len(values) if values else None
+
+
+def compute_quota():
+    """Reads the state written by quota/statusline.py (the global Claude Code
+    statusLine hook). That's the only sanctioned source for real quota
+    numbers — see quota/README.md for why there's no API for this."""
+    unavailable = {"available": False}
+    if not QUOTA_STATE_PATH.exists():
+        return unavailable
+    try:
+        with open(QUOTA_STATE_PATH) as f:
+            state = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return unavailable
+
+    updated_epoch = parse_timestamp(state.get("updated_at"))
+    # The hook only fires while a Claude Code session is active, so this
+    # file can be hours or days stale between sessions — still worth
+    # showing (better than nothing), just flagged rather than hidden.
+    stale = updated_epoch is None or (time.time() - updated_epoch) > 3600
+
+    rate_limits = state.get("rate_limits") or {}
+    if not any(rate_limits.get(k) for k in ("five_hour", "seven_day", "spend_limit")):
+        # rate_limits only appears for Pro/Max subscribers (or a spend-limit
+        # gateway) after the first API response in a session.
+        return unavailable
+
+    return {
+        "available": True,
+        "stale": stale,
+        "updated_at": state.get("updated_at"),
+        "rate_limits": rate_limits,
+        "prompt_cache": state.get("prompt_cache") or {},
+    }
 
 
 def parse_session_events(path: Path):
@@ -472,6 +507,7 @@ def compute_stats(token_range, net_range):
         "bucket_seconds": bucket_seconds,
         "timeseries": timeseries,
         "network": compute_network_stats(net_range),
+        "quota": compute_quota(),
         "tool_usage": tool_list,
         "avg_turn_duration_ms": avg(global_turn_durations_ms),
         "today": today_totals,

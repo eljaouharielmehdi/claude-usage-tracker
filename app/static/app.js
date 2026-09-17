@@ -455,6 +455,86 @@ function renderSessionTable(sessions) {
   }));
 }
 
+// --- Quota (rate_limits from the statusline hook) --------------------------
+
+function formatCountdown(resetsAtEpoch) {
+  if (!resetsAtEpoch) return "";
+  const seconds = resetsAtEpoch - Date.now() / 1000;
+  if (seconds <= 0) return "resets now";
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  return h > 0 ? `resets in ${h}h ${m}m` : `resets in ${m}m`;
+}
+
+function quotaFillClass(pct) {
+  if (pct >= 90) return "danger";
+  if (pct >= 70) return "warn";
+  return "";
+}
+
+function renderQuotaRow(name, window) {
+  if (!window || typeof window.used_percentage !== "number") return null;
+  const pct = Math.max(0, Math.min(100, window.used_percentage));
+  return el("div", {}, [
+    el("div", { class: "quota-row-head" }, [
+      el("span", { class: "name" }, [name]),
+      el("span", { class: "detail" }, [`${pct.toFixed(0)}% \u00b7 ${formatCountdown(window.resets_at)}`]),
+    ]),
+    el("div", { class: "quota-track" }, [
+      el("div", { class: `quota-fill ${quotaFillClass(pct)}`, style: `width:${pct}%` }),
+    ]),
+  ]);
+}
+
+let lastQuota = null;
+
+function renderQuotaPanel(quota) {
+  const unavailableEl = document.getElementById("quota-unavailable");
+  const bodyEl = document.getElementById("quota-body");
+  lastQuota = quota;
+
+  if (!quota || !quota.available) {
+    unavailableEl.hidden = false;
+    bodyEl.hidden = true;
+    return;
+  }
+  unavailableEl.hidden = true;
+  bodyEl.hidden = false;
+
+  const rows = [
+    renderQuotaRow("5-hour window", quota.rate_limits.five_hour),
+    renderQuotaRow("7-day window", quota.rate_limits.seven_day),
+    renderQuotaRow("Spend limit", quota.rate_limits.spend_limit),
+  ].filter(Boolean);
+
+  const children = [el("div", { class: "quota-rows" }, rows)];
+
+  const cache = quota.prompt_cache || {};
+  if (typeof cache.hit_ratio === "number" || typeof cache.warm === "boolean") {
+    const items = [];
+    if (typeof cache.warm === "boolean") {
+      items.push(el("span", { class: "item" }, ["Cache: ", el("b", {}, [cache.warm ? "warm" : "cold"])]));
+    }
+    if (typeof cache.hit_ratio === "number") {
+      items.push(el("span", { class: "item" }, ["Hit ratio: ", el("b", {}, [(cache.hit_ratio * 100).toFixed(0) + "%"])]));
+    }
+    if (cache.last_miss_cause && cache.last_miss_cause.causes) {
+      items.push(el("span", { class: "item" }, ["Last miss: ", el("b", {}, [cache.last_miss_cause.causes.join(", ")])]));
+    }
+    children.push(el("div", { class: "cache-health" }, items));
+  }
+
+  if (quota.stale) {
+    children.push(el("div", { class: "quota-stale-note" }, [`Last updated ${formatTime(quota.updated_at)} \u2014 no active session right now`]));
+  }
+
+  bodyEl.replaceChildren(...children);
+}
+
+// Live-recompute the countdown text every 30s without waiting for the next
+// /api/stats poll, since resets_at doesn't change between polls.
+setInterval(() => { if (lastQuota) renderQuotaPanel(lastQuota); }, 30000);
+
 async function refresh() {
   const dot = document.getElementById("live-dot");
   const updatedAt = document.getElementById("updated-at");
@@ -478,6 +558,7 @@ async function refresh() {
     renderToolUsage(data.tool_usage);
     renderSessionTable(data.sessions);
     renderNetworkPanel(data.network);
+    renderQuotaPanel(data.quota);
 
     dot.classList.remove("stale");
     updatedAt.textContent = "updated " + new Date().toLocaleTimeString();

@@ -18,6 +18,16 @@
 
   <section class="stat-grid" id="stat-grid"></section>
 
+  <section class="panel" id="quota-panel">
+    <h2>Quota</h2>
+    <div id="quota-body"></div>
+    <div class="empty" id="quota-unavailable" hidden>
+      No quota data yet — the statusLine hook (<code>quota/statusline.py</code>) writes
+      this after your first response in a Claude Code session with Pro/Max rate limits.
+      See <code>quota/README.md</code>.
+    </div>
+  </section>
+
   <section class="panel">
     <h2>Today &amp; this week (UTC)</h2>
     <div class="period-cols">

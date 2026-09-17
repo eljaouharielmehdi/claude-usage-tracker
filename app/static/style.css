@@ -388,6 +388,46 @@ th.num { text-align: right; }
 
 .empty { color: var(--text-muted); font-style: italic; padding: 8px 0; }
 
+.quota-rows { display: flex; flex-direction: column; gap: 14px; }
+.quota-row-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  margin-bottom: 5px;
+}
+.quota-row-head .name { color: var(--text-secondary); }
+.quota-row-head .detail { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.quota-track {
+  height: 10px;
+  border-radius: 5px;
+  background: var(--grid);
+  overflow: hidden;
+}
+.quota-fill {
+  height: 100%;
+  border-radius: 5px;
+  background: var(--series-1);
+  transition: width 0.3s ease;
+}
+.quota-fill.warn { background: var(--series-4); }
+.quota-fill.danger { background: var(--series-8); }
+.quota-stale-note {
+  color: var(--text-muted);
+  font-size: 11px;
+  margin-top: 10px;
+}
+.cache-health {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+}
+.cache-health .item { color: var(--text-secondary); }
+.cache-health .item b { color: var(--text-primary); font-variant-numeric: tabular-nums; }
+
 footer {
   color: var(--text-muted);
   font-size: 11px;

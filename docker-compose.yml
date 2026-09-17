@@ -11,6 +11,8 @@ services:
       - ./config:/config
       # Written by the host-level anthropic-netmon systemd service (see netmon/).
       - ./netmon/data:/data/network:ro
+      # Written by quota/statusline.py via the global statusLine hook (see quota/README.md).
+      - ${HOME}/.claude/usage_state:/data/quota:ro
     environment:
       - REFRESH_SECONDS=2
     healthcheck:
