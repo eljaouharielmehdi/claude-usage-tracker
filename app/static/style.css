@@ -275,6 +275,31 @@ th.num { text-align: right; }
 }
 .table-toggle:hover { color: var(--text-primary); border-color: var(--baseline); }
 
+.panel-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+.range-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.range-toggle button {
+  background: none;
+  border: 0;
+  border-right: 1px solid var(--border);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 11px;
+  padding: 5px 9px;
+  cursor: pointer;
+}
+.range-toggle button:last-child { border-right: 0; }
+.range-toggle button:hover { color: var(--text-primary); }
+.range-toggle button[aria-pressed="true"] {
+  background: var(--series-1);
+  color: #fff;
+}
+
 .chart-table { margin-top: 14px; max-height: 260px; overflow-y: auto; }
 
 .net-stats {

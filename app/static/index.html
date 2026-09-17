@@ -34,8 +34,11 @@
 
   <section class="panel">
     <div class="panel-head">
-      <h2>Tokens — last 24h</h2>
-      <button class="table-toggle" id="chart-table-toggle" type="button">View as table</button>
+      <h2>Tokens</h2>
+      <div class="panel-controls">
+        <div class="range-toggle" id="token-range" role="group" aria-label="Token chart time range"></div>
+        <button class="table-toggle" id="chart-table-toggle" type="button">View as table</button>
+      </div>
     </div>
     <div class="legend" id="chart-legend"></div>
     <div class="chart-wrap" id="chart-wrap">
@@ -47,8 +50,11 @@
 
   <section class="panel" id="network-panel">
     <div class="panel-head">
-      <h2>Network traffic to Anthropic — last 24h</h2>
-      <button class="table-toggle" id="net-table-toggle" type="button">View as table</button>
+      <h2>Network traffic to Anthropic</h2>
+      <div class="panel-controls">
+        <div class="range-toggle" id="net-range" role="group" aria-label="Network chart time range"></div>
+        <button class="table-toggle" id="net-table-toggle" type="button">View as table</button>
+      </div>
     </div>
     <div id="network-body">
       <div class="net-stats" id="net-stats"></div>
@@ -80,10 +86,12 @@
 
   <section class="panel">
     <h2>By project</h2>
-    <table id="project-table">
-      <thead><tr><th>Project</th><th class="num">Tokens</th><th class="num">Cost</th></tr></thead>
-      <tbody></tbody>
-    </table>
+    <div class="table-scroll">
+      <table id="project-table">
+        <thead><tr><th>Project</th><th class="num">Tokens</th><th class="num">Cost</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
   </section>
 
   <section class="panel">

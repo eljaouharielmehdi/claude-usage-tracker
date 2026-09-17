@@ -3,7 +3,12 @@ const SERIES_VARS = ["--series-1", "--series-2", "--series-3", "--series-4",
                       "--series-5", "--series-6", "--series-7", "--series-8"];
 const NET_COLORS = { sent: "var(--series-1)", received: "var(--series-2)" };
 
+const RANGES = ["1h", "24h", "7d", "30d", "1y"];
+const RANGE_STORAGE_KEY = "claude-usage-ranges";
+
 let modelColor = new Map();      // model name -> css var()
+let tokenRange = "24h";
+let netRange = "24h";
 let lastTokenSeries = [];
 let lastNetSeries = [];
 let showTokenTable = false;
@@ -31,9 +36,40 @@ function formatTime(iso) {
   return new Date(iso).toLocaleString();
 }
 
-function bucketLabel(point) {
-  // point.bucket is "YYYY-MM-DDTHH:MM" (UTC, floored to a 5-minute step).
-  return point.bucket.slice(11, 16);
+// point.bucket is "YYYY-MM-DDTHH:MM" (UTC, floored to the range's bucket
+// width). Short ranges only need the clock; longer ones need the date.
+function bucketLabel(point, range) {
+  const b = point.bucket;
+  if (range === "1h" || range === "24h") return b.slice(11, 16);
+  if (range === "7d") return b.slice(5, 10) + " " + b.slice(11, 16);
+  return b.slice(0, 10);
+}
+
+function emptyRangeText(range) {
+  return `No activity in the last ${range}`;
+}
+
+function loadRanges() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(RANGE_STORAGE_KEY) || "{}");
+    if (RANGES.includes(saved.token)) tokenRange = saved.token;
+    if (RANGES.includes(saved.net)) netRange = saved.net;
+  } catch (_) { /* storage unavailable — keep defaults */ }
+}
+
+function saveRanges() {
+  try {
+    localStorage.setItem(RANGE_STORAGE_KEY, JSON.stringify({ token: tokenRange, net: netRange }));
+  } catch (_) { /* storage unavailable — selection just won't persist */ }
+}
+
+function renderRangeToggle(containerId, current, onSelect) {
+  const container = document.getElementById(containerId);
+  container.replaceChildren(...RANGES.map(range => {
+    const button = el("button", { type: "button", "aria-pressed": String(range === current) }, [range]);
+    button.addEventListener("click", () => onSelect(range));
+    return button;
+  }));
 }
 
 function formatDuration(ms) {
@@ -79,6 +115,7 @@ function renderStatGrid(data) {
   const cards = [
     { label: "Total tokens", value: formatTokens(totalTokens) },
     { label: "Estimated cost", value: formatCost(t.cost_usd), accent: true },
+    { label: "Saved by caching", value: formatCost(t.cache_savings_usd), accent: true },
     { label: "Messages", value: t.message_count.toLocaleString() },
     { label: "Active sessions (5m)", value: String(data.active_sessions_5min) },
     { label: "Sessions tracked", value: String(data.sessions.length) },
@@ -177,9 +214,9 @@ function showTooltip(wrapEl, anchorEl, hourLabel, rows, formatValue) {
   tooltip.style.top = (barRect.top - wrapRect.top - 6) + "px";
 }
 
-function renderStackedChart({ wrapEl, chartEl, axisEl, timeseries, seriesOf, formatValue }) {
-  if (!timeseries.length) {
-    chartEl.replaceChildren(el("div", { class: "empty" }, ["No activity in the last 24h"]));
+function renderStackedChart({ wrapEl, chartEl, axisEl, timeseries, range, seriesOf, formatValue }) {
+  if (!timeseries.some(p => p.total > 0)) {
+    chartEl.replaceChildren(el("div", { class: "empty" }, [emptyRangeText(range)]));
     axisEl.replaceChildren();
     return;
   }
@@ -194,7 +231,7 @@ function renderStackedChart({ wrapEl, chartEl, axisEl, timeseries, seriesOf, for
       return el("div", { class: "seg", style: `height:${pct}%;background:${color}` });
     });
     const col = el("div", { class: "bar-col" }, segs);
-    const label = bucketLabel(point);
+    const label = bucketLabel(point, range);
     const open = () => showTooltip(wrapEl, col, label, series, formatValue);
     const close = () => hideTooltip(wrapEl);
     col.addEventListener("pointerenter", open);
@@ -211,15 +248,16 @@ function renderStackedChart({ wrapEl, chartEl, axisEl, timeseries, seriesOf, for
   // are (5-minute buckets over 24h means ~288 bars — too many to label each).
   const labelEvery = Math.max(1, Math.ceil(timeseries.length / 12));
   axisEl.replaceChildren(...timeseries.map((point, i) => {
-    const label = i % labelEvery === 0 ? bucketLabel(point) : "";
+    const label = i % labelEvery === 0 ? bucketLabel(point, range) : "";
     return el("span", {}, [label]);
   }));
 }
 
-function renderChartTable(containerId, timeseries, columns, formatValue) {
+function renderChartTable(containerId, timeseries, range, columns, formatValue) {
   const container = document.getElementById(containerId);
-  if (!timeseries.length) {
-    container.replaceChildren(el("div", { class: "empty" }, ["No activity in the last 24h"]));
+  const active = timeseries.filter(p => p.total > 0);
+  if (!active.length) {
+    container.replaceChildren(el("div", { class: "empty" }, [emptyRangeText(range)]));
     return;
   }
   const thead = el("tr", {}, [
@@ -227,8 +265,8 @@ function renderChartTable(containerId, timeseries, columns, formatValue) {
     ...columns.map(c => el("th", { class: "num" }, [c.label])),
     el("th", { class: "num" }, ["Total"]),
   ]);
-  const rows = timeseries.map(point => el("tr", {}, [
-    el("td", {}, [bucketLabel(point)]),
+  const rows = active.map(point => el("tr", {}, [
+    el("td", {}, [bucketLabel(point, range)]),
     ...columns.map(c => el("td", { class: "num" }, [formatValue(c.get(point) || 0)])),
     el("td", { class: "num" }, [formatValue(point.total)]),
   ]));
@@ -245,6 +283,7 @@ function renderTokenChart(timeseries, modelOrder) {
     chartEl: document.getElementById("chart"),
     axisEl: document.getElementById("chart-axis"),
     timeseries,
+    range: tokenRange,
     seriesOf: point => modelOrder.map(model => [model, point.by_model[model] || 0, colorFor(model)]),
     formatValue: formatTokens,
   });
@@ -259,6 +298,7 @@ function renderNetworkChart(timeseries) {
     chartEl: document.getElementById("net-chart"),
     axisEl: document.getElementById("net-chart-axis"),
     timeseries,
+    range: netRange,
     seriesOf: point => [
       ["Sent", point.sent, NET_COLORS.sent],
       ["Received", point.received, NET_COLORS.received],
@@ -304,14 +344,14 @@ function renderNetworkPanel(network) {
 }
 
 function renderNetTable() {
-  renderChartTable("net-chart-table", lastNetSeries, [
+  renderChartTable("net-chart-table", lastNetSeries, netRange, [
     { label: "Sent", get: p => p.sent },
     { label: "Received", get: p => p.received },
   ], formatBytes);
 }
 
 function renderTokenTable(modelOrder) {
-  renderChartTable("chart-table", lastTokenSeries,
+  renderChartTable("chart-table", lastTokenSeries, tokenRange,
     modelOrder.map(m => ({ label: m, get: p => p.by_model[m] })),
     formatTokens);
 }
@@ -379,7 +419,7 @@ async function refresh() {
   const dot = document.getElementById("live-dot");
   const updatedAt = document.getElementById("updated-at");
   try {
-    const res = await fetch("/api/stats");
+    const res = await fetch(`/api/stats?range=${tokenRange}&net_range=${netRange}`);
     if (!res.ok) throw new Error("HTTP " + res.status);
     const data = await res.json();
     const modelOrder = data.model_order || [];
@@ -406,6 +446,24 @@ async function refresh() {
   }
 }
 
+function selectTokenRange(range) {
+  tokenRange = range;
+  saveRanges();
+  renderRangeToggle("token-range", tokenRange, selectTokenRange);
+  refresh();
+}
+
+function selectNetRange(range) {
+  netRange = range;
+  saveRanges();
+  renderRangeToggle("net-range", netRange, selectNetRange);
+  refresh();
+}
+
+loadRanges();
+renderRangeToggle("token-range", tokenRange, selectTokenRange);
+renderRangeToggle("net-range", netRange, selectNetRange);
+
 document.getElementById("chart-table-toggle").addEventListener("click", (e) => {
   showTokenTable = !showTokenTable;
   document.getElementById("chart-table").hidden = !showTokenTable;
@@ -422,5 +480,26 @@ document.getElementById("net-table-toggle").addEventListener("click", (e) => {
   if (showNetTable) renderNetTable();
 });
 
-refresh();
-setInterval(refresh, REFRESH_MS);
+// Pause polling while the tab isn't visible — no point hitting the API and
+// re-rendering every 2s when nobody can see it — and refresh immediately
+// when it becomes visible again so the view isn't stale.
+let refreshTimer = null;
+
+function startPolling() {
+  if (refreshTimer !== null) return;
+  refresh();
+  refreshTimer = setInterval(refresh, REFRESH_MS);
+}
+
+function stopPolling() {
+  if (refreshTimer === null) return;
+  clearInterval(refreshTimer);
+  refreshTimer = null;
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) stopPolling();
+  else startPolling();
+});
+
+if (!document.hidden) startPolling();
