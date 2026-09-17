@@ -13,3 +13,9 @@ services:
       - ./netmon/data:/data/network:ro
     environment:
       - REFRESH_SECONDS=2
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8687/api/stats', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
