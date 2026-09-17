@@ -31,6 +31,17 @@ function formatTime(iso) {
   return new Date(iso).toLocaleString();
 }
 
+function formatDuration(ms) {
+  if (ms === null || ms === undefined) return "-";
+  const totalSeconds = Math.round(ms / 1000);
+  if (totalSeconds < 60) return totalSeconds + "s";
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes < 60) return `${minutes}m ${seconds}s`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ${minutes % 60}m`;
+}
+
 // Fixed categorical order, assigned once per known model set so colors stay
 // stable across refreshes rather than being re-cycled when the mix changes.
 function assignModelColors(modelOrder) {
@@ -67,12 +78,58 @@ function renderStatGrid(data) {
     { label: "Active sessions (5m)", value: String(data.active_sessions_5min) },
     { label: "Sessions tracked", value: String(data.sessions.length) },
     { label: "Projects tracked", value: String(data.by_project.length) },
+    { label: "Avg response time", value: formatDuration(data.avg_turn_duration_ms) },
   ];
   const grid = document.getElementById("stat-grid");
   grid.replaceChildren(...cards.map(c => el("div", { class: "stat-card" }, [
     el("div", { class: "label" }, [c.label]),
     el("div", { class: "value" + (c.accent ? " accent" : "") }, [c.value]),
   ])));
+}
+
+function renderPeriodStats(containerId, totals, rateLimitHits) {
+  const total = totals.input_tokens + totals.output_tokens
+    + totals.cache_creation_input_tokens + totals.cache_read_input_tokens;
+  const container = document.getElementById(containerId);
+  container.replaceChildren(
+    el("div", { class: "stat-card" }, [
+      el("div", { class: "label" }, ["Tokens"]),
+      el("div", { class: "value" }, [formatTokens(total)]),
+    ]),
+    el("div", { class: "stat-card" }, [
+      el("div", { class: "label" }, ["Cost"]),
+      el("div", { class: "value" }, [formatCost(totals.cost_usd)]),
+    ]),
+    el("div", { class: "stat-card" }, [
+      el("div", { class: "label" }, ["Thinking tokens"]),
+      el("div", { class: "value" }, [formatTokens(totals.thinking_tokens)]),
+    ]),
+    el("div", { class: "stat-card" }, [
+      el("div", { class: "label" }, ["Rate-limit hits"]),
+      el("div", { class: "value" + (rateLimitHits > 0 ? " warn" : "") }, [String(rateLimitHits)]),
+    ]),
+  );
+}
+
+// Tool usage — horizontal bars, direct-labeled so no legend is needed.
+function renderToolUsage(toolUsage) {
+  const container = document.getElementById("tool-usage-bars");
+  if (!toolUsage.length) {
+    container.replaceChildren(el("div", { class: "empty" }, ["No tool calls recorded yet"]));
+    return;
+  }
+  const max = Math.max(...toolUsage.map(t => t.count), 1);
+  container.replaceChildren(...toolUsage.map((t, i) => {
+    const color = t.tool === "Other" ? "var(--text-muted)" : `var(${SERIES_VARS[i % SERIES_VARS.length]})`;
+    const pct = Math.max((t.count / max) * 100, 2);
+    return el("div", { class: "tool-bar-row" }, [
+      el("div", { class: "tool-bar-name" }, [t.tool]),
+      el("div", { class: "tool-bar-track" }, [
+        el("div", { class: "tool-bar-fill", style: `width:${pct}%;background:${color}` }),
+      ]),
+      el("div", { class: "tool-bar-count" }, [String(t.count)]),
+    ]);
+  }));
 }
 
 function renderLegend(containerId, entries) {
@@ -254,13 +311,14 @@ function renderTokenTable(modelOrder) {
 function renderModelTable(byModel) {
   const tbody = document.querySelector("#model-table tbody");
   if (!byModel.length) {
-    tbody.replaceChildren(el("tr", {}, [el("td", { colspan: "6", class: "empty" }, ["No usage yet"])]));
+    tbody.replaceChildren(el("tr", {}, [el("td", { colspan: "7", class: "empty" }, ["No usage yet"])]));
     return;
   }
   tbody.replaceChildren(...byModel.map(m => el("tr", {}, [
     el("td", {}, [el("span", { class: "swatch", style: `background:${colorFor(m.model)}` }), el("span", {}, [m.model])]),
     el("td", { class: "num" }, [formatTokens(m.totals.input_tokens)]),
     el("td", { class: "num" }, [formatTokens(m.totals.output_tokens)]),
+    el("td", { class: "num" }, [formatTokens(m.totals.thinking_tokens)]),
     el("td", { class: "num" }, [formatTokens(m.totals.cache_creation_input_tokens)]),
     el("td", { class: "num" }, [formatTokens(m.totals.cache_read_input_tokens)]),
     el("td", { class: "num" }, [formatCost(m.totals.cost_usd)]),
@@ -287,7 +345,7 @@ function renderProjectTable(byProject) {
 function renderSessionTable(sessions) {
   const tbody = document.querySelector("#session-table tbody");
   if (!sessions.length) {
-    tbody.replaceChildren(el("tr", {}, [el("td", { colspan: "6", class: "empty" }, ["No sessions yet"])]));
+    tbody.replaceChildren(el("tr", {}, [el("td", { colspan: "8", class: "empty" }, ["No sessions yet"])]));
     return;
   }
   tbody.replaceChildren(...sessions.map(s => {
@@ -303,6 +361,8 @@ function renderSessionTable(sessions) {
       el("td", { class: "num" }, [String(s.totals.message_count)]),
       el("td", { class: "num" }, [formatTokens(total)]),
       el("td", { class: "num" }, [formatCost(s.totals.cost_usd)]),
+      el("td", { class: "num" }, [formatDuration(s.duration_ms)]),
+      el("td", { class: "num" }, [formatDuration(s.avg_turn_ms)]),
     ]);
   }));
 }
@@ -318,11 +378,14 @@ async function refresh() {
 
     assignModelColors(modelOrder);
     renderStatGrid(data);
+    renderPeriodStats("today-stats", data.today, data.rate_limit_hits.today);
+    renderPeriodStats("week-stats", data.week, data.rate_limit_hits.week);
     renderLegend("chart-legend", modelOrder.map(m => ({ label: m, color: colorFor(m) })));
     renderTokenChart(data.timeseries, modelOrder);
     if (showTokenTable) renderTokenTable(modelOrder);
     renderModelTable(data.by_model);
     renderProjectTable(data.by_project);
+    renderToolUsage(data.tool_usage);
     renderSessionTable(data.sessions);
     renderNetworkPanel(data.network);
 

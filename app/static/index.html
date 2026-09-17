@@ -19,6 +19,20 @@
   <section class="stat-grid" id="stat-grid"></section>
 
   <section class="panel">
+    <h2>Today &amp; this week (UTC)</h2>
+    <div class="period-cols">
+      <div>
+        <div class="period-label">Today</div>
+        <div class="net-stats" id="today-stats"></div>
+      </div>
+      <div>
+        <div class="period-label">Last 7 days</div>
+        <div class="net-stats" id="week-stats"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
     <div class="panel-head">
       <h2>Tokens — last 24h</h2>
       <button class="table-toggle" id="chart-table-toggle" type="button">View as table</button>
@@ -51,36 +65,44 @@
     </div>
   </section>
 
-  <div class="two-col">
-    <section class="panel">
-      <h2>By model</h2>
+  <section class="panel">
+    <h2>By model</h2>
+    <div class="table-scroll">
       <table id="model-table">
         <thead><tr>
           <th>Model</th><th class="num">Input</th><th class="num">Output</th>
-          <th class="num">Cache write</th><th class="num">Cache read</th><th class="num">Cost</th>
+          <th class="num">Thinking</th><th class="num">Cache write</th><th class="num">Cache read</th><th class="num">Cost</th>
         </tr></thead>
         <tbody></tbody>
       </table>
-    </section>
+    </div>
+  </section>
 
-    <section class="panel">
-      <h2>By project</h2>
-      <table id="project-table">
-        <thead><tr><th>Project</th><th class="num">Tokens</th><th class="num">Cost</th></tr></thead>
-        <tbody></tbody>
-      </table>
-    </section>
-  </div>
+  <section class="panel">
+    <h2>By project</h2>
+    <table id="project-table">
+      <thead><tr><th>Project</th><th class="num">Tokens</th><th class="num">Cost</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section class="panel">
+    <h2>Tool usage</h2>
+    <div id="tool-usage-bars"></div>
+  </section>
 
   <section class="panel">
     <h2>Recent sessions</h2>
-    <table id="session-table">
-      <thead><tr>
-        <th>Last activity</th><th>Project</th><th>Model(s)</th>
-        <th class="num">Messages</th><th class="num">Tokens</th><th class="num">Cost</th>
-      </tr></thead>
-      <tbody></tbody>
-    </table>
+    <div class="table-scroll">
+      <table id="session-table">
+        <thead><tr>
+          <th>Last activity</th><th>Project</th><th>Model(s)</th>
+          <th class="num">Messages</th><th class="num">Tokens</th><th class="num">Cost</th>
+          <th class="num">Duration</th><th class="num">Avg turn</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
   </section>
 
   <footer>

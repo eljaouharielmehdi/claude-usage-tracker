@@ -9,6 +9,7 @@ No data leaves this container: everything is parsed from local files
 already on disk.
 """
 
+import calendar
 import glob
 import json
 import logging
@@ -16,6 +17,7 @@ import os
 import shutil
 import threading
 import time
+from collections import Counter
 from pathlib import Path
 
 from flask import Flask, jsonify, send_from_directory
@@ -68,7 +70,7 @@ def decode_project_name(dirname: str) -> str:
 
 def empty_totals():
     return {"input_tokens": 0, "output_tokens": 0, "cache_creation_input_tokens": 0,
-            "cache_read_input_tokens": 0, "message_count": 0, "cost_usd": 0.0}
+            "cache_read_input_tokens": 0, "thinking_tokens": 0, "message_count": 0, "cost_usd": 0.0}
 
 
 def add_usage(totals, usage, model, pricing):
@@ -76,6 +78,11 @@ def add_usage(totals, usage, model, pricing):
     output_tokens = usage.get("output_tokens", 0) or 0
     cache_write = usage.get("cache_creation_input_tokens", 0) or 0
     cache_read = usage.get("cache_read_input_tokens", 0) or 0
+    # Thinking tokens are a subset of output_tokens (Anthropic bills them as
+    # output) — tracked here purely as an informational breakdown, not added
+    # again on top of output_tokens for cost.
+    output_details = usage.get("output_tokens_details") or {}
+    thinking_tokens = output_details.get("thinking_tokens", 0) or 0
 
     rates = pricing.get(model, pricing.get("default", {}))
     cost = (
@@ -89,9 +96,20 @@ def add_usage(totals, usage, model, pricing):
     totals["output_tokens"] += output_tokens
     totals["cache_creation_input_tokens"] += cache_write
     totals["cache_read_input_tokens"] += cache_read
+    totals["thinking_tokens"] += thinking_tokens
     totals["message_count"] += 1
     totals["cost_usd"] += cost
     return cost
+
+
+def parse_timestamp(timestamp):
+    """Returns a UTC epoch for a Claude Code log timestamp ('...Z'), or None."""
+    if not timestamp:
+        return None
+    try:
+        return calendar.timegm(time.strptime(timestamp[:19], "%Y-%m-%dT%H:%M:%S"))
+    except ValueError:
+        return None
 
 
 def iter_session_files():
@@ -141,11 +159,8 @@ def compute_network_stats():
     hourly_buckets = {}
     for row in rows:
         timestamp = row.get("timestamp")
-        if not timestamp:
-            continue
-        try:
-            epoch = time.mktime(time.strptime(timestamp[:19], "%Y-%m-%dT%H:%M:%S"))
-        except ValueError:
+        epoch = parse_timestamp(timestamp)
+        if epoch is None:
             continue
         if epoch < day_ago:
             continue
@@ -169,6 +184,10 @@ def compute_network_stats():
     }
 
 
+def avg(values):
+    return sum(values) / len(values) if values else None
+
+
 def compute_stats():
     pricing = load_pricing()
 
@@ -176,19 +195,23 @@ def compute_stats():
     by_model = {}
     by_project = {}
     sessions = {}
-    hourly_buckets = {}  # "YYYY-MM-DDTHH" -> tokens
+    hourly_buckets = {}  # "YYYY-MM-DDTHH" -> {model: tokens}
+    tool_counts = Counter()
+    global_turn_durations_ms = []
+
     now = time.time()
     day_ago = now - 24 * 3600
+    today_start = calendar.timegm(time.gmtime(now)[:3] + (0, 0, 0, 0, 0, 0))
+    week_start = now - 7 * 24 * 3600
+
+    today_totals = empty_totals()
+    week_totals = empty_totals()
+    rate_limit_hits = {"today": 0, "week": 0, "total": 0}
 
     for path in iter_session_files():
         project_dir = path.parent.name
         project_name = decode_project_name(project_dir)
         session_id = path.stem
-
-        try:
-            mtime = path.stat().st_mtime
-        except OSError:
-            continue
 
         try:
             with open(path, "r", errors="ignore") as f:
@@ -202,8 +225,10 @@ def compute_stats():
                 "session_id": session_id,
                 "project": project_name,
                 "totals": empty_totals(),
+                "first_activity": None,
                 "last_activity": None,
                 "models": set(),
+                "turn_durations_ms": [],
             }
             sessions[session_id] = session_entry
 
@@ -216,7 +241,25 @@ def compute_stats():
             except json.JSONDecodeError:
                 continue
 
-            if entry.get("type") != "assistant":
+            entry_type = entry.get("type")
+
+            if entry_type == "system" and entry.get("subtype") == "turn_duration":
+                duration = entry.get("durationMs")
+                if isinstance(duration, (int, float)):
+                    session_entry["turn_durations_ms"].append(duration)
+                    global_turn_durations_ms.append(duration)
+                continue
+
+            if entry_type != "assistant":
+                continue
+
+            if entry.get("error") == "rate_limit":
+                epoch = parse_timestamp(entry.get("timestamp"))
+                rate_limit_hits["total"] += 1
+                if epoch and epoch >= today_start:
+                    rate_limit_hits["today"] += 1
+                if epoch and epoch >= week_start:
+                    rate_limit_hits["week"] += 1
                 continue
 
             message = entry.get("message", {})
@@ -229,11 +272,18 @@ def compute_stats():
                 continue
 
             timestamp = entry.get("timestamp")
+            epoch = parse_timestamp(timestamp)
 
             cost = add_usage(session_entry["totals"], usage, model, pricing)
             session_entry["models"].add(model)
+            if timestamp and (session_entry["first_activity"] is None or timestamp < session_entry["first_activity"]):
+                session_entry["first_activity"] = timestamp
             if timestamp and (session_entry["last_activity"] is None or timestamp > session_entry["last_activity"]):
                 session_entry["last_activity"] = timestamp
+
+            for item in message.get("content", []) or []:
+                if isinstance(item, dict) and item.get("type") == "tool_use":
+                    tool_counts[item.get("name") or "unknown"] += 1
 
             add_usage(global_totals, usage, model, pricing)
 
@@ -243,26 +293,32 @@ def compute_stats():
             project_totals = by_project.setdefault(project_name, empty_totals())
             add_usage(project_totals, usage, model, pricing)
 
-            if timestamp:
-                try:
-                    epoch = time.mktime(time.strptime(timestamp[:19], "%Y-%m-%dT%H:%M:%S"))
-                except ValueError:
-                    epoch = None
-                if epoch and epoch >= day_ago:
-                    bucket_key = timestamp[:13]  # YYYY-MM-DDTHH
-                    tok = (usage.get("input_tokens", 0) or 0) + (usage.get("output_tokens", 0) or 0)
-                    bucket = hourly_buckets.setdefault(bucket_key, {})
-                    bucket[model] = bucket.get(model, 0) + tok
+            if epoch and epoch >= today_start:
+                add_usage(today_totals, usage, model, pricing)
+            if epoch and epoch >= week_start:
+                add_usage(week_totals, usage, model, pricing)
+
+            if epoch and epoch >= day_ago:
+                bucket_key = timestamp[:13]  # YYYY-MM-DDTHH
+                tok = (usage.get("input_tokens", 0) or 0) + (usage.get("output_tokens", 0) or 0)
+                bucket = hourly_buckets.setdefault(bucket_key, {})
+                bucket[model] = bucket.get(model, 0) + tok
 
     session_list = []
     for s in sessions.values():
         if s["totals"]["message_count"] == 0:
             continue
+        duration_s = None
+        if s["first_activity"] and s["last_activity"]:
+            duration_s = parse_timestamp(s["last_activity"]) - parse_timestamp(s["first_activity"])
         session_list.append({
             "session_id": s["session_id"],
             "project": s["project"],
             "totals": s["totals"],
+            "first_activity": s["first_activity"],
             "last_activity": s["last_activity"],
+            "duration_ms": duration_s * 1000 if duration_s is not None else None,
+            "avg_turn_ms": avg(s["turn_durations_ms"]),
             "models": sorted(s["models"]),
         })
     session_list.sort(key=lambda s: s["last_activity"] or "", reverse=True)
@@ -279,6 +335,14 @@ def compute_stats():
     ]
     model_order = sorted(by_model.keys())
 
+    # Cap distinct tools shown individually to the palette's safe categorical
+    # count; fold the long tail into "Other" rather than generating more hues.
+    MAX_TOOL_SLOTS = 7
+    tool_list = [{"tool": name, "count": count} for name, count in tool_counts.most_common()]
+    if len(tool_list) > MAX_TOOL_SLOTS:
+        other_count = sum(t["count"] for t in tool_list[MAX_TOOL_SLOTS:])
+        tool_list = tool_list[:MAX_TOOL_SLOTS] + [{"tool": "Other", "count": other_count}]
+
     return {
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "global_totals": global_totals,
@@ -288,10 +352,14 @@ def compute_stats():
         "sessions": session_list[:50],
         "timeseries": timeseries,
         "network": compute_network_stats(),
+        "tool_usage": tool_list,
+        "avg_turn_duration_ms": avg(global_turn_durations_ms),
+        "today": today_totals,
+        "week": week_totals,
+        "rate_limit_hits": rate_limit_hits,
         "active_sessions_5min": sum(
             1 for s in session_list
-            if s["last_activity"] and
-            time.time() - time.mktime(time.strptime(s["last_activity"][:19], "%Y-%m-%dT%H:%M:%S")) < 300
+            if s["last_activity"] and now - parse_timestamp(s["last_activity"]) < 300
         ),
     }
 
