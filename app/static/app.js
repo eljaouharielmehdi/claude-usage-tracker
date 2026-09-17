@@ -242,14 +242,18 @@ function renderStackedChart({ wrapEl, chartEl, axisEl, timeseries, range, series
     return col;
   });
 
+  chartEl.style.setProperty("--bars", String(timeseries.length));
+  axisEl.style.setProperty("--bars", String(timeseries.length));
   chartEl.replaceChildren(gridlines, ...bars);
 
   // Aim for roughly a dozen axis labels regardless of how fine the buckets
   // are (5-minute buckets over 24h means ~288 bars — too many to label each).
   const labelEvery = Math.max(1, Math.ceil(timeseries.length / 12));
+  const lastLabelIndex = Math.floor((timeseries.length - 1) / labelEvery) * labelEvery;
   axisEl.replaceChildren(...timeseries.map((point, i) => {
-    const label = i % labelEvery === 0 ? bucketLabel(point, range) : "";
-    return el("span", {}, [label]);
+    if (i % labelEvery !== 0) return el("span");
+    const edge = i === 0 ? " axis-label-start" : i === lastLabelIndex ? " axis-label-end" : "";
+    return el("span", {}, [el("span", { class: "axis-label" + edge }, [bucketLabel(point, range)])]);
   }));
 }
 

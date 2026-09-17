@@ -189,16 +189,22 @@ th.num { text-align: right; }
 .legend-item { display: flex; align-items: center; }
 
 /* Bar chart */
-.chart-wrap { position: relative; }
+/* --bars is set from JS to the number of buckets in view; the gap is 30% of
+   each bar's share of the width, capped at 3px, so 61 one-minute bars get
+   breathing room and 366 daily bars pack edge to edge without overflowing. */
+.chart-wrap { position: relative; container-type: inline-size; }
 
 .chart {
+  --bars: 1;
+  --bar-gap: clamp(0px, calc(100cqw / var(--bars) * 0.3), 3px);
   display: flex;
   align-items: flex-end;
-  gap: 3px;
+  gap: var(--bar-gap);
   height: 160px;
   position: relative;
   border-bottom: 1px solid var(--baseline);
   padding-top: 8px;
+  overflow: hidden;
 }
 
 .chart .gridlines {
@@ -219,7 +225,7 @@ th.num { text-align: right; }
   align-items: stretch;
   gap: 2px; /* surface gap between stacked segments */
   cursor: pointer;
-  min-width: 4px;
+  min-width: 0;
   max-width: 26px;
   margin: 0 auto;
   position: relative;
@@ -233,17 +239,35 @@ th.num { text-align: right; }
 .bar-col:hover .seg { filter: brightness(1.12); }
 
 .chart-axis {
+  --bars: 1;
+  --bar-gap: clamp(0px, calc(100cqw / var(--bars) * 0.3), 3px);
   display: flex;
-  gap: 3px;
+  gap: var(--bar-gap);
   margin-top: 6px;
+  height: 14px;
+  overflow: hidden;
 }
-.chart-axis span {
-  flex: 1;
-  text-align: center;
+.chart-axis > span {
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 26px;
+  margin: 0 auto;
+  position: relative;
+}
+/* Labels are centred on their slot but sit outside its flow, so a slot can
+   shrink to a pixel or two on dense views without pushing the row wider. */
+.chart-axis .axis-label {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
   font-size: 10px;
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
 }
+/* Edge labels hug the chart edges instead of hanging half outside it. */
+.chart-axis .axis-label-start { left: 0; transform: none; }
+.chart-axis .axis-label-end { left: auto; right: 0; transform: none; }
 
 .tooltip {
   position: absolute;
