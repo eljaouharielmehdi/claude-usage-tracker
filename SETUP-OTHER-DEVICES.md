@@ -12,6 +12,7 @@ bottom.)
 - Docker + Docker Compose v2 (`docker compose version` should work)
 - Claude Code CLI already used at least once there, so `~/.claude/projects`
   exists
+- Git, and SSH access to your GitHub account (see below)
 
 Install Docker if needed (Debian/Ubuntu):
 ```bash
@@ -19,17 +20,28 @@ curl -fsSL https://get.docker.com | sh
 sudo usermod -aG docker $USER   # log out/in after this
 ```
 
-## 2. Copy the project over
+## 2. Get GitHub access working on the target device
 
-From this machine:
+The repo is at **https://github.com/eljaouharielmehdi/claude-usage-tracker**
+(public, so cloning over HTTPS needs no auth at all — SSH is only needed if
+you want to push changes back from that device):
+
 ```bash
-rsync -av --exclude='config' \
-  /home/elmehdi/Desktop/selfsetup/claude-usage-tracker/ \
-  <user>@<other-device-ip>:~/claude-usage-tracker/
+git clone https://github.com/eljaouharielmehdi/claude-usage-tracker.git
 ```
-(`--exclude=config` skips this device's already-seeded pricing file so the
-other device gets a fresh default — copy it too if you want the same rates
-everywhere.)
+
+If you'd rather use SSH (e.g. to push updates from that device too), generate
+a key there and add it under a **new** entry in GitHub → Settings → SSH and
+GPG keys (one key per device is fine — don't copy this machine's private
+key over):
+```bash
+ssh-keygen -t ed25519 -C "<device-name>" -f ~/.ssh/id_ed25519_github -N ""
+cat ~/.ssh/id_ed25519_github.pub   # paste this into GitHub
+```
+then:
+```bash
+git clone git@github.com:eljaouharielmehdi/claude-usage-tracker.git
+```
 
 No code needs editing — `docker-compose.yml` already uses `${HOME}` so it
 picks up whichever user runs `docker compose` on that device.
@@ -73,11 +85,15 @@ sudo systemctl enable docker
 
 ## Updating later
 
-Whenever you change the app, `rsync` the updated files over again (still
-excluding `config/`) and re-run:
+Pull the latest changes and rebuild:
 ```bash
+cd claude-usage-tracker
+git pull
 docker compose up -d --build
 ```
+
+`config/` is gitignored (it holds each device's own seeded pricing file),
+so pulling never overwrites your local rates.
 
 ## If you ever want one combined view across all devices
 
